@@ -817,6 +817,140 @@ def img(image, n_results, output_dir, trim, save_top, threshold, overlay,
 
 
 # -----------------------------------------------------------------------
+# highlights
+# -----------------------------------------------------------------------
+
+@cli.command()
+@click.option("-n", "--count", default=5, show_default=True, type=click.IntRange(min=1),
+              help="Number of highlight clips to return.")
+@click.option("--method", type=click.Choice(["centroid", "knn", "lof"]),
+              default="knn", show_default=True,
+              help="Anomaly scoring method.")
+@click.option("-k", "--neighbors", default=10, show_default=True, type=click.IntRange(min=1),
+              help="k for knn/lof methods.")
+@click.option("--against", default=None,
+              help="Score anomaly relative to a query (see --against-mode).")
+@click.option("--against-mode", type=click.Choice(["within", "global"]),
+              default="within", show_default=True,
+              help="within: anomalous among matches of --against. "
+                   "global: matches --against but unlike the rest of the index.")
+@click.option("--dedupe", "dedupe_threshold", default=0.9, show_default=True, type=float,
+              help="Drop results whose cosine similarity to a higher-ranked "
+                   "result exceeds this.")
+@click.option("--exclude-baseline", is_flag=True,
+              help="Drop the half of the index nearest the centroid before scoring.")
+@click.option("--trim/--no-trim", default=True, show_default=True,
+              help="Trim and save the highlight clips.")
+@click.option("-o", "--output-dir", default="~/sentrysearch_clips", show_default=True,
+              help="Directory to save trimmed clips.")
+@click.option("--overlay/--no-overlay", default=False, show_default=True,
+              help="Burn Tesla telemetry overlay onto trimmed clips.")
+@click.option("--backend", type=click.Choice(["gemini", "local"]), default=None,
+              help="Embedding backend (auto-detected from index if omitted).")
+@click.option("--model", default=None,
+              help="Model for local backend (default: auto-detect from index).")
+@click.option("--quantize/--no-quantize", default=None,
+              help="Enable/disable 4-bit quantization for local backend.")
+@click.option("--verbose", is_flag=True, help="Show debug info.")
+def highlights(count, method, neighbors, against, against_mode, dedupe_threshold,
+               exclude_baseline, trim, output_dir, overlay, backend, model,
+               quantize, verbose):
+    """Surface the most anomalous clips in the indexed footage.
+
+    Useful when you don't know what to search for — finds chunks whose
+    embedding sits far from the rest of the index.
+    """
+    import numpy as np
+
+    from .embedder import embed_query, get_embedder, reset_embedder
+    from .highlights import rank_highlights
+    from .local_embedder import normalize_model_key
+    from .store import SentryStore, detect_index
+
+    output_dir = os.path.expanduser(output_dir)
+
+    try:
+        if model is not None and backend is None:
+            backend = "local"
+        if model is not None:
+            model = normalize_model_key(model)
+        if backend is None:
+            detected_backend, detected_model = detect_index()
+            backend = detected_backend or "gemini"
+            if model is None:
+                model = detected_model
+        elif backend == "local" and model is None:
+            _, model = detect_index()
+
+        store = SentryStore(backend=backend, model=model)
+        if store.get_stats()["total_chunks"] == 0:
+            click.echo(
+                "No indexed footage found. "
+                "Run `sentrysearch index <directory>` first."
+            )
+            return
+
+        against_embedding = None
+        if against is not None:
+            get_embedder(backend, model=model, quantize=quantize)
+            against_embedding = np.asarray(
+                embed_query(against, verbose=verbose), dtype=np.float32,
+            )
+
+        if verbose:
+            click.echo(
+                f"  [verbose] method={method}, k={neighbors}, "
+                f"dedupe={dedupe_threshold}, exclude_baseline={exclude_baseline}",
+                err=True,
+            )
+
+        results = rank_highlights(
+            store,
+            count=count,
+            method=method,
+            neighbors=neighbors,
+            dedupe_threshold=dedupe_threshold,
+            exclude_baseline=exclude_baseline,
+            against_embedding=against_embedding,
+            against_mode=against_mode,
+        )
+
+        if not results:
+            click.echo("No highlights found (index too small or all filtered out).")
+            return
+
+        for i, r in enumerate(results, 1):
+            basename = os.path.basename(r["source_file"])
+            start_str = _fmt_time(r["start_time"])
+            end_str = _fmt_time(r["end_time"])
+            score = r["similarity_score"]
+            fmt = f"{score:.4f}" if verbose else f"{score:.3f}"
+            click.echo(f"  #{i} [{fmt}] {basename} @ {start_str}-{end_str}")
+
+        _cache_last_search(results, query=f"[highlights:{method}]")
+
+        if trim:
+            from .trimmer import trim_top_results
+            clip_paths = trim_top_results(results, output_dir, count=len(results))
+            for i, clip_path in enumerate(clip_paths):
+                if overlay:
+                    r = results[i]
+                    _apply_overlay_to_clip(
+                        clip_path, r["source_file"],
+                        r["start_time"], r["end_time"],
+                    )
+                click.echo(f"\nSaved clip: {clip_path}")
+            if clip_paths:
+                _cache_last_clip(clip_paths[0])
+                _open_file(clip_paths[0])
+
+    except Exception as e:
+        _handle_error(e)
+    finally:
+        reset_embedder()
+
+
+# -----------------------------------------------------------------------
 # shell
 # -----------------------------------------------------------------------
 

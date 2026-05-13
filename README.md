@@ -2,7 +2,7 @@
 
 Semantic search over video footage. Type what you're looking for, get a trimmed clip back.
 
-**New:** [Blur objects in your videos](#redact-with-sentryblur) with [SentryBlur](https://github.com/ssrajadh/sentryblur), composes directly with SentrySearch
+**New:** [`sentrysearch highlights`](#highlights): surface the most anomalous clips in your footage when you don't know what to search for.
 
 [<video src="https://github.com/ssrajadh/sentrysearch/raw/main/docs/demo.mp4" controls width="100%"></video>](https://github.com/user-attachments/assets/baf98fad-080b-48e1-97f5-a2db2cbd53f5)
 
@@ -15,6 +15,7 @@ Semantic search over video footage. Type what you're looking for, get a trimmed 
   - [Index footage](#index-footage)
   - [Search](#search)
   - [Search by image](#search-by-image)
+  - [Highlights](#highlights)
   - [Local Backend (no API key needed)](#local-backend-no-api-key-needed)
   - [Why the local model is fast](#why-the-local-model-is-fast)
   - [Tesla Metadata Overlay](#tesla-metadata-overlay)
@@ -159,6 +160,34 @@ The image is embedded into the same vector space as the indexed video chunks and
 Supported formats: JPG, PNG, WEBP, GIF, HEIC/HEIF on the Gemini backend; the local backend additionally accepts anything PIL can decode (BMP, TIFF, etc.).
 
 > **Note:** Image search returns *visually similar* matches, not necessarily the same object. A red sedan query may surface other red sedans of similar shape — calibrate expectations accordingly.
+
+### Highlights
+
+Don't know what to search for? `sentrysearch highlights` ranks the most anomalous clips in your index — chunks whose embeddings sit far from everything else — and trims them automatically. Good for skimming a fresh dump of footage.
+
+```bash
+$ sentrysearch highlights -n 3
+  #1 [0.165] 2026-02-12_20-02-15-back.mp4 @ 00:00-00:18
+  #2 [0.163] 2026-02-12_20-02-15-right_repeater.mp4 @ 00:00-00:18
+  #3 [0.149] 2026-02-12_20-02-15-front.mp4 @ 00:00-00:18
+...
+```
+
+Scoring methods (`--method`):
+
+- **`knn`** (default) — mean cosine distance to a chunk's *k* nearest neighbors. Robust; surfaces clips with no near-twins.
+- **`centroid`** — distance from the index mean. Cheapest, biased toward whatever's underrepresented.
+- **`lof`** — Local Outlier Factor. Best when the index has multiple distinct "normal" modes (day vs. night vs. garage).
+
+Refinement options:
+
+- `--against "<query>"` — score anomaly *relative to* a query. With `--against-mode within` (default), ranks anomalies among the top matches of the query ("the weird pedestrians in pedestrian clips"). With `--against-mode global`, finds clips that match the query *but* are unlike the rest of the index ("rare events of this type").
+- `--dedupe 0.9` — drop results too similar to a higher-ranked pick (default 0.9 cosine similarity). Prevents near-duplicate frames from filling the list.
+- `--exclude-baseline` — drop the half of the index nearest the centroid before scoring. Useful when the index is dominated by repetitive "boring" footage.
+- `-k, --neighbors 10` — *k* for `knn`/`lof`.
+- `--no-trim` — print the ranking without writing clips.
+
+> **Caveat:** Statistically anomalous ≠ interesting. Sensor glitches, lens flare, night frames in a mostly-daytime index, and the lone garage clip all rank high. Use `--exclude-baseline` and `--dedupe` to filter the noise, or `--against` to constrain by topic.
 
 ### Local Backend (no API key needed)
 
