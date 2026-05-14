@@ -2,6 +2,8 @@
 
 Semantic search over video footage. Type what you're looking for, get a trimmed clip back.
 
+**Languages:** English · [简体中文](README.zh.md)
+
 **New:** [Blur objects in your videos](#redact-with-sentryblur) with [SentryBlur](https://github.com/ssrajadh/sentryblur), composes directly with SentrySearch
 
 [<video src="https://github.com/ssrajadh/sentrysearch/raw/main/docs/demo.mp4" controls width="100%"></video>](https://github.com/user-attachments/assets/baf98fad-080b-48e1-97f5-a2db2cbd53f5)
