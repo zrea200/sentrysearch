@@ -2,6 +2,8 @@
 
 Semantic search over video footage. Type what you're looking for, get a trimmed clip back.
 
+**Languages:** English · [简体中文](README.zh.md)
+
 **The Pipeline:**
 1. SentrySearch (find an event in your footage)
 2. [SentryMerge](https://github.com/ssrajadh/sentrymerge) (auto-cut the multi-cam footage into one video that follows the subject across cameras)
@@ -69,7 +71,7 @@ uv tool install .
 > uv tool install --python 3.12 .
 > ```
 
-3. Set up your API key (or [use a local model instead](#local-backend-no-api-key-needed)):
+3. Set up your API key (or [use a local model instead](#local-backend-no-api-key-needed)) — **only needed for the default Gemini backend**; skip if you use `--backend local` or `--backend qwen-cloud` with `DASHSCOPE_API_KEY` in `.env`.
 
 ```bash
 sentrysearch init
@@ -352,6 +354,8 @@ Both Gemini Embedding 2 and Qwen3-VL-Embedding can natively embed video — raw 
 
 ## Cost
 
+### Gemini
+
 Indexing 1 hour of footage costs ~$2.84 with Gemini's embedding API (default settings: 30s chunks, 5s overlap):
 
 > 1 hour = 3,600 seconds of video = 3,600 frames processed by the model.
@@ -366,7 +370,20 @@ Two built-in optimizations help reduce costs in different ways:
 
 Search queries are negligible (text embedding only).
 
-Tuning options:
+### Qwen Cloud (DashScope, Qwen3-VL-Embedding)
+
+DashScope bills **multimodal embedding** in **CNY per 1,000 input tokens**, by modality. For default model `qwen3-vl-embedding`, Alibaba’s published rates (check the doc below for your region and any updates) are along the lines of:
+
+- **Text input:** about **¥0.0007** per 1k input tokens  
+- **Image / video input:** about **¥0.0018** per 1k input tokens  
+
+Indexing sends **video** chunks (video modality); each `search` / `img` query is mostly **text** or **image** tokens, which are cheaper per token than video. Your real cost is the **token counts returned by DashScope** for each API call (depends on resolution, duration, sampling such as `DASHSCOPE_VIDEO_FPS`, etc.)—there is no fixed “$ per hour of footage” like Gemini’s published per-frame USD rate without measuring your workload.
+
+Alibaba also documents a **free token allowance** (e.g. 1M tokens within a limited period after activation); confirm in the [DashScope multimodal embedding metering & billing](https://help.aliyun.com/dashscope/developer-reference/one-peace-multimodal-embedding-metering-and-billing) page and in the Model Studio / billing console, since **pricing, regions, and promotions change**.
+
+### Indexing tuning (both backends)
+
+These flags affect chunking and preprocessing for **both** Gemini and qwen-cloud:
 
 - `--chunk-duration` / `--overlap` — longer chunks with less overlap = fewer API calls = lower cost
 - `--no-skip-still` — embed every chunk even if nothing is happening
