@@ -171,6 +171,25 @@ class TestStoreBackend:
         store = SentryStore(db_path=tmp_path / "db", backend="gemini")
         assert store.collection.name == "dashcam_chunks"
 
+    def test_qwen_cloud_backend_collection_name(self, tmp_path):
+        from sentrysearch.store import SentryStore
+
+        store = SentryStore(
+            db_path=tmp_path / "db",
+            backend="qwen-cloud",
+            model="qwen3-vl-embedding",
+        )
+        assert store.collection.name == "dashcam_chunks_qwen_cloud_qwen3-vl-embedding"
+
+    def test_qwen_cloud_collection_slug_sanitizes_special_chars(self, tmp_path):
+        from sentrysearch.store import SentryStore
+
+        raw = "org/model:v1@special"
+        store = SentryStore(db_path=tmp_path / "db", backend="qwen-cloud", model=raw)
+        suffix = store.collection.name.removeprefix("dashcam_chunks_qwen_cloud_")
+        assert "/" not in suffix and ":" not in suffix and "@" not in suffix
+        assert all(c.isalnum() or c in "._-" for c in suffix)
+
     def test_backends_use_separate_collections(self, tmp_path):
         from sentrysearch.store import SentryStore
 
@@ -305,3 +324,33 @@ class TestDetectIndex:
             "source_file": "v.mp4", "start_time": 0.0, "end_time": 30.0,
         })
         assert detect_index(db) == ("gemini", None)
+
+    def test_gemini_preferred_over_qwen_cloud(self, tmp_path):
+        from sentrysearch.store import SentryStore, detect_index
+
+        db = tmp_path / "db"
+        emb = _make_embedding()
+        gemini = SentryStore(db_path=db, backend="gemini")
+        gemini.add_chunk("g1", emb, {
+            "source_file": "v.mp4", "start_time": 0.0, "end_time": 30.0,
+        })
+        qc = SentryStore(
+            db_path=db, backend="qwen-cloud", model="qwen3-vl-embedding",
+        )
+        qc.add_chunk("q1", emb, {
+            "source_file": "v.mp4", "start_time": 0.0, "end_time": 30.0,
+        })
+        assert detect_index(db) == ("gemini", None)
+
+    def test_detects_qwen_cloud_model(self, tmp_path):
+        from sentrysearch.store import SentryStore, detect_index
+
+        store = SentryStore(
+            db_path=tmp_path / "db",
+            backend="qwen-cloud",
+            model="qwen3-vl-embedding",
+        )
+        store.add_chunk("c1", _make_embedding(), {
+            "source_file": "v.mp4", "start_time": 0.0, "end_time": 30.0,
+        })
+        assert detect_index(tmp_path / "db") == ("qwen-cloud", "qwen3-vl-embedding")

@@ -34,6 +34,28 @@ class TestCliGroup:
         assert "Search dashcam footage" in result.output or "search" in result.output.lower()
 
 
+class TestModelDashscopeFlagConflict:
+    def test_index_rejects_both_model_flags(self, runner, tmp_path):
+        d = tmp_path / "empty"
+        d.mkdir()
+        result = runner.invoke(cli, [
+            "index", str(d),
+            "--model", "qwen2b",
+            "--dashscope-model", "qwen3-vl-embedding",
+        ])
+        assert result.exit_code == 2
+        out = (result.output or "") + (result.stderr or "")
+        assert "not both" in out.lower() or "only one of" in out.lower()
+
+    def test_search_rejects_both_model_flags(self, runner):
+        result = runner.invoke(cli, [
+            "search", "query",
+            "--model", "qwen2b",
+            "--dashscope-model", "qwen3-vl-embedding",
+        ])
+        assert result.exit_code == 2
+
+
 class TestStatsCommand:
     def test_stats_empty(self, runner):
         with patch("sentrysearch.store.SentryStore") as MockStore, \

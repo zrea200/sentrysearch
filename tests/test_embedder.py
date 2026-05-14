@@ -246,3 +246,13 @@ class TestEmbedderFactory:
             reset_embedder()
             get_embedder("local", model="qwen2b")
             MockLocal.assert_called_once_with(model_name="qwen2b", dimensions=768, quantize=None)
+
+    def test_get_embedder_qwen_cloud_backend(self):
+        with patch("sentrysearch.qwen_cloud_embedder.QwenCloudEmbedder") as MockQC:
+            MockQC.return_value = MagicMock()
+            reset_embedder()
+            result = get_embedder("qwen-cloud", model="qwen3-vl-embedding")
+            MockQC.assert_called_once_with(
+                model_name="qwen3-vl-embedding", dimensions=768,
+            )
+            assert result is MockQC.return_value

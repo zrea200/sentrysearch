@@ -2,6 +2,8 @@
 
 Semantic search over video footage. Type what you're looking for, get a trimmed clip back.
 
+**Languages:** English · [简体中文](README.zh.md)
+
 **New:** [Blur objects in your videos](#redact-with-sentryblur) with [SentryBlur](https://github.com/ssrajadh/sentryblur), composes directly with SentrySearch
 
 [<video src="https://github.com/ssrajadh/sentrysearch/raw/main/docs/demo.mp4" controls width="100%"></video>](https://github.com/user-attachments/assets/baf98fad-080b-48e1-97f5-a2db2cbd53f5)
@@ -15,6 +17,7 @@ Semantic search over video footage. Type what you're looking for, get a trimmed 
   - [Index footage](#index-footage)
   - [Search](#search)
   - [Search by image](#search-by-image)
+  - [Qwen Cloud (Alibaba DashScope)](#qwen-cloud-alibaba-dashscope)
   - [Local Backend (no API key needed)](#local-backend-no-api-key-needed)
   - [Why the local model is fast](#why-the-local-model-is-fast)
   - [Tesla Metadata Overlay](#tesla-metadata-overlay)
@@ -30,7 +33,7 @@ Semantic search over video footage. Type what you're looking for, get a trimmed 
 
 ## How it works
 
-SentrySearch splits your videos into overlapping chunks, embeds each chunk as video using either Google's Gemini Embedding API or a local Qwen3-VL model, and stores the vectors in a local ChromaDB database. When you search, your text query (or image, see [search by image](#search-by-image)) is embedded into the same vector space and matched against the stored video embeddings. The top match is automatically trimmed from the original file and saved as a clip.
+SentrySearch splits your videos into overlapping chunks, embeds each chunk as video using Google's Gemini Embedding API, Alibaba DashScope (**qwen-cloud**), or a local Qwen3-VL model, and stores the vectors in a local ChromaDB database. When you search, your text query (or image, see [search by image](#search-by-image)) is embedded into the same vector space and matched against the stored video embeddings. The top match is automatically trimmed from the original file and saved as a clip.
 
 ## Getting Started
 
@@ -159,6 +162,19 @@ The image is embedded into the same vector space as the indexed video chunks and
 Supported formats: JPG, PNG, WEBP, GIF, HEIC/HEIF on the Gemini backend; the local backend additionally accepts anything PIL can decode (BMP, TIFF, etc.).
 
 > **Note:** Image search returns *visually similar* matches, not necessarily the same object. A red sedan query may surface other red sedans of similar shape — calibrate expectations accordingly.
+
+### Qwen Cloud (Alibaba DashScope)
+
+Use the optional **qwen-cloud** backend for [DashScope](https://help.aliyun.com/dashscope/) / Model Studio multimodal embeddings (default model `qwen3-vl-embedding`, overridable with `--dashscope-model` or `DASHSCOPE_EMBEDDING_MODEL`):
+
+```bash
+uv tool install ".[qwen-cloud]"
+export DASHSCOPE_API_KEY=...
+sentrysearch index /path/to/footage --backend qwen-cloud
+sentrysearch search "your query" --backend qwen-cloud
+```
+
+**Video uploads:** local chunk files are sent to **DashScope-managed temporary OSS by the official Python SDK** before the API consumes them (the HTTP API expects a URL; the SDK handles upload for you).
 
 ### Local Backend (no API key needed)
 

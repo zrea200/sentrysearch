@@ -1,6 +1,7 @@
 """ChromaDB vector store."""
 
 import hashlib
+import re
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -8,6 +9,16 @@ import chromadb
 
 
 DEFAULT_DB_PATH = Path.home() / ".sentrysearch" / "db"
+
+# Chroma collection names allow [a-zA-Z0-9._-] only.
+_CHROMA_NAME_UNSAFE = re.compile(r"[^a-zA-Z0-9._-]+")
+
+
+def _chroma_collection_slug(name: str) -> str:
+    """Sanitize *name* for use inside a ChromaDB collection name segment."""
+    s = _CHROMA_NAME_UNSAFE.sub("_", (name or "").strip())
+    s = re.sub(r"_+", "_", s).strip("_")
+    return s or "default"
 
 
 class BackendMismatchError(RuntimeError):
@@ -18,6 +29,9 @@ def _collection_name(backend: str, model: str | None = None) -> str:
     """Return ChromaDB collection name for a backend and optional model."""
     if backend == "gemini":
         return "dashcam_chunks"
+    if backend == "qwen-cloud":
+        slug = _chroma_collection_slug(model or "qwen3-vl-embedding")
+        return f"dashcam_chunks_qwen_cloud_{slug}"
     if model:
         return f"dashcam_chunks_local_{model}"
     # Legacy: local backend without model distinction
@@ -28,8 +42,9 @@ def detect_index(db_path: str | Path | None = None) -> tuple[str | None, str | N
     """Return ``(backend, model)`` for the first index with data.
 
     Returns ``(None, None)`` when no index contains data.
-    Checks gemini first, then model-specific local collections, then the
-    legacy ``dashcam_chunks_local`` collection (treated as qwen8b).
+    Checks gemini first, then DashScope ``qwen-cloud`` collections, then
+    model-specific local collections, then the legacy ``dashcam_chunks_local``
+    collection (treated as qwen8b).
     """
     db_path = str(db_path or DEFAULT_DB_PATH)
     if not Path(db_path).exists():
@@ -42,6 +57,17 @@ def detect_index(db_path: str | Path | None = None) -> tuple[str | None, str | N
         col = client.get_collection("dashcam_chunks")
         if col.count() > 0:
             return "gemini", None
+
+    # DashScope qwen-cloud (dashcam_chunks_qwen_cloud_<model>)
+    for name in sorted(existing):
+        if name.startswith("dashcam_chunks_qwen_cloud_"):
+            col = client.get_collection(name)
+            if col.count() > 0:
+                meta = col.metadata or {}
+                model = meta.get("embedding_model")
+                if model is None:
+                    model = name.removeprefix("dashcam_chunks_qwen_cloud_")
+                return "qwen-cloud", model
 
     # Model-specific local collections (dashcam_chunks_local_<model>)
     for name in sorted(existing):

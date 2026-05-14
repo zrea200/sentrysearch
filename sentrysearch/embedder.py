@@ -7,6 +7,11 @@ Re-exports error classes from gemini_embedder for existing import sites.
 
 from .base_embedder import BaseEmbedder
 from .gemini_embedder import GeminiAPIKeyError, GeminiQuotaError  # noqa: F401
+from .qwen_cloud_embedder import (  # noqa: F401
+    DashScopeAPIKeyError,
+    DashScopeDependencyError,
+    default_dashscope_embedding_model,
+)
 
 _current_embedder: BaseEmbedder | None = None
 
@@ -24,6 +29,15 @@ def get_embedder(backend: str = "gemini", **kwargs) -> BaseEmbedder:
             dims = kwargs.get("dimensions", 768)
             quantize = kwargs.get("quantize", None)
             _current_embedder = LocalEmbedder(model_name=model, dimensions=dims, quantize=quantize)
+        elif backend == "qwen-cloud":
+            from .qwen_cloud_embedder import QwenCloudEmbedder
+            qc_model = kwargs.get("model")
+            dims = kwargs.get("dimensions", 768)
+            vfps = kwargs.get("video_fps")
+            qkw: dict = {"model_name": qc_model, "dimensions": dims}
+            if vfps is not None:
+                qkw["video_fps"] = vfps
+            _current_embedder = QwenCloudEmbedder(**qkw)
         else:
             raise ValueError(f"Unknown backend: {backend}")
     return _current_embedder

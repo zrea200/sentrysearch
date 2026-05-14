@@ -14,6 +14,28 @@ _ENV_PATH = os.path.join(os.path.expanduser("~"), ".sentrysearch", ".env")
 load_dotenv(_ENV_PATH)
 load_dotenv()  # cwd .env can override
 
+from .qwen_cloud_embedder import default_dashscope_embedding_model
+
+_BACKEND_CHOICES = ["gemini", "local", "qwen-cloud"]
+
+_MODEL_FLAG_HELP_SUFFIX = (
+    " Mutually exclusive with --dashscope-model (do not pass both)."
+)
+_DASHSCOPE_MODEL_FLAG_HELP_SUFFIX = (
+    " Mutually exclusive with --model (do not pass both)."
+)
+
+
+def _reject_conflicting_model_flags(
+    model: str | None, dashscope_model: str | None,
+) -> None:
+    """Raise if both local and DashScope model selectors are set."""
+    if model is not None and dashscope_model is not None:
+        raise click.UsageError(
+            "Use only one of --model (local backend) or --dashscope-model "
+            "(qwen-cloud / DashScope), not both."
+        )
+
 
 def _fmt_time(seconds: float) -> str:
     """Format seconds as MM:SS."""
@@ -178,6 +200,9 @@ def _handle_error(e: Exception) -> None:
     if isinstance(e, PermissionError):
         click.secho("Error: " + str(e), fg="red", err=True)
         raise SystemExit(1)
+    if isinstance(e, click.UsageError):
+        click.secho(str(e), fg="red", err=True)
+        raise SystemExit(2)
     if isinstance(e, FileNotFoundError):
         click.secho("Error: " + str(e), fg="red", err=True)
         raise SystemExit(1)
@@ -348,18 +373,25 @@ def init():
               help="Target frames per second for preprocessing.")
 @click.option("--skip-still/--no-skip-still", default=True, show_default=True,
               help="Skip chunks with no meaningful visual change.")
-@click.option("--backend", type=click.Choice(["gemini", "local"]), default=None,
+@click.option("--backend", type=click.Choice(_BACKEND_CHOICES), default=None,
               help="Embedding backend (default: gemini, or local when --model is set).")
 @click.option("--model", default=None, show_default=False,
               help="Model for local backend: qwen8b, qwen2b, or HuggingFace ID "
-                   "(default: auto-detect from hardware). Implies --backend local.")
+                   "(default: auto-detect from hardware). Implies --backend local."
+                   + _MODEL_FLAG_HELP_SUFFIX)
+@click.option("--dashscope-model", default=None, show_default=False,
+              help="DashScope embedding model id for --backend qwen-cloud "
+                   "(default: env DASHSCOPE_EMBEDDING_MODEL or qwen3-vl-embedding). "
+                   "Implies --backend qwen-cloud."
+                   + _DASHSCOPE_MODEL_FLAG_HELP_SUFFIX)
 @click.option("--quantize/--no-quantize", default=None,
               help="Enable/disable 4-bit quantization for local backend (default: auto-detect).")
 @click.option("--retry-failed", is_flag=True,
               help="Retry chunks that previously failed and were routed to the DLQ.")
 @click.option("--verbose", is_flag=True, help="Show debug info.")
 def index(directory, chunk_duration, overlap, preprocess, target_resolution,
-          target_fps, skip_still, backend, model, quantize, retry_failed, verbose):
+          target_fps, skip_still, backend, model, dashscope_model, quantize,
+          retry_failed, verbose):
     """Index supported video files in DIRECTORY for searching."""
     from .chunker import (
         SUPPORTED_VIDEO_EXTENSIONS,
@@ -376,26 +408,31 @@ def index(directory, chunk_duration, overlap, preprocess, target_resolution,
     from .store import SentryStore
 
     try:
+        _reject_conflicting_model_flags(model, dashscope_model)
         if overlap >= chunk_duration:
             raise click.BadParameter(
                 f"overlap ({overlap}s) must be less than chunk_duration ({chunk_duration}s).",
                 param_hint="'--overlap'",
             )
 
-        # --model implies --backend local
+        # --model implies --backend local; --dashscope-model implies qwen-cloud
         if model is not None and backend is None:
             backend = "local"
+        if dashscope_model is not None and backend is None:
+            backend = "qwen-cloud"
         if backend is None:
             backend = "gemini"
 
-        # Auto-detect model from hardware when using local backend
-        if backend == "local" and model is None:
-            model = detect_default_model()
-            click.echo(f"Auto-detected model: {model}", err=True)
-
-        # Normalize model key for consistent collection naming
-        if backend == "local":
+        if backend == "qwen-cloud":
+            model = dashscope_model or default_dashscope_embedding_model()
+        elif backend == "local":
+            # Auto-detect model from hardware when using local backend
+            if model is None:
+                model = detect_default_model()
+                click.echo(f"Auto-detected model: {model}", err=True)
             model = normalize_model_key(model)
+        else:
+            model = None
 
         embedder = get_embedder(backend, model=model, quantize=quantize)
 
@@ -597,15 +634,20 @@ def index(directory, chunk_duration, overlap, preprocess, target_resolution,
               help="Minimum similarity score to consider a confident match.")
 @click.option("--overlay/--no-overlay", default=False, show_default=True,
               help="Burn Tesla telemetry overlay (speed, GPS, turn signals) onto trimmed clip.")
-@click.option("--backend", type=click.Choice(["gemini", "local"]), default=None,
+@click.option("--backend", type=click.Choice(_BACKEND_CHOICES), default=None,
               help="Embedding backend (auto-detected from index if omitted).")
 @click.option("--model", default=None, show_default=False,
               help="Model for local backend: qwen8b, qwen2b, or HuggingFace ID "
-                   "(default: auto-detect from index). Implies --backend local.")
+                   "(default: auto-detect from index). Implies --backend local."
+                   + _MODEL_FLAG_HELP_SUFFIX)
+@click.option("--dashscope-model", default=None, show_default=False,
+              help="DashScope model id for qwen-cloud (default: from index or "
+                   "DASHSCOPE_EMBEDDING_MODEL). Implies --backend qwen-cloud."
+                   + _DASHSCOPE_MODEL_FLAG_HELP_SUFFIX)
 @click.option("--quantize/--no-quantize", default=None,
               help="Enable/disable 4-bit quantization for local backend (default: auto-detect).")
 @click.option("--verbose", is_flag=True, help="Show debug info.")
-def search(query, n_results, output_dir, trim, save_top, threshold, overlay, backend, model, quantize, verbose):
+def search(query, n_results, output_dir, trim, save_top, threshold, overlay, backend, model, dashscope_model, quantize, verbose):
     """Search indexed footage with a natural language QUERY."""
     from .embedder import get_embedder, reset_embedder
     from .local_embedder import normalize_model_key
@@ -615,12 +657,14 @@ def search(query, n_results, output_dir, trim, save_top, threshold, overlay, bac
     output_dir = os.path.expanduser(output_dir)
 
     try:
+        _reject_conflicting_model_flags(model, dashscope_model)
+        if dashscope_model is not None and backend is None:
+            backend = "qwen-cloud"
         # --model implies --backend local
         if model is not None and backend is None:
             backend = "local"
 
-        # Normalize model key for consistent collection naming
-        if model is not None:
+        if backend == "local" and model is not None:
             model = normalize_model_key(model)
 
         # Auto-detect backend and model from whichever collection has data
@@ -632,6 +676,12 @@ def search(query, n_results, output_dir, trim, save_top, threshold, overlay, bac
         elif backend == "local" and model is None:
             _, detected_model = detect_index()
             model = detected_model
+        elif backend == "qwen-cloud":
+            if dashscope_model is not None:
+                model = dashscope_model
+            elif model is None:
+                _, detected_model = detect_index()
+                model = detected_model or default_dashscope_embedding_model()
 
         store = SentryStore(backend=backend, model=model)
 
@@ -754,15 +804,19 @@ def _present_results(results, threshold, trim, save_top, output_dir, overlay, ve
               help="Minimum similarity score to consider a confident match.")
 @click.option("--overlay/--no-overlay", default=False, show_default=True,
               help="Apply Tesla telemetry overlay to saved clips.")
-@click.option("--backend", type=click.Choice(["gemini", "local"]), default=None,
+@click.option("--backend", type=click.Choice(_BACKEND_CHOICES), default=None,
               help="Embedding backend (auto-detected from index if omitted).")
 @click.option("--model", default=None,
-              help="Model for local backend (default: auto-detect from index).")
+              help="Model for local backend (default: auto-detect from index)."
+                   + _MODEL_FLAG_HELP_SUFFIX)
+@click.option("--dashscope-model", default=None,
+              help="DashScope model id for qwen-cloud (implies --backend qwen-cloud)."
+                   + _DASHSCOPE_MODEL_FLAG_HELP_SUFFIX)
 @click.option("--quantize/--no-quantize", default=None,
               help="Enable/disable 4-bit quantization for local backend.")
 @click.option("--verbose", is_flag=True, help="Show debug info.")
 def img(image, n_results, output_dir, trim, save_top, threshold, overlay,
-        backend, model, quantize, verbose):
+        backend, model, dashscope_model, quantize, verbose):
     """Search indexed footage using an IMAGE as the query."""
     from .embedder import get_embedder, reset_embedder
     from .local_embedder import normalize_model_key
@@ -772,9 +826,12 @@ def img(image, n_results, output_dir, trim, save_top, threshold, overlay,
     output_dir = os.path.expanduser(output_dir)
 
     try:
+        _reject_conflicting_model_flags(model, dashscope_model)
+        if dashscope_model is not None and backend is None:
+            backend = "qwen-cloud"
         if model is not None and backend is None:
             backend = "local"
-        if model is not None:
+        if backend == "local" and model is not None:
             model = normalize_model_key(model)
         if backend is None:
             detected_backend, detected_model = detect_index()
@@ -783,6 +840,12 @@ def img(image, n_results, output_dir, trim, save_top, threshold, overlay,
                 model = detected_model
         elif backend == "local" and model is None:
             _, model = detect_index()
+        elif backend == "qwen-cloud":
+            if dashscope_model is not None:
+                model = dashscope_model
+            elif model is None:
+                _, detected_model = detect_index()
+                model = detected_model or default_dashscope_embedding_model()
 
         store = SentryStore(backend=backend, model=model)
 
@@ -839,10 +902,14 @@ def _print_shell_results(results, threshold):
 
 
 @cli.command()
-@click.option("--backend", type=click.Choice(["gemini", "local"]), default=None,
+@click.option("--backend", type=click.Choice(_BACKEND_CHOICES), default=None,
               help="Embedding backend (auto-detected from index if omitted).")
 @click.option("--model", default=None,
-              help="Model for local backend (default: auto-detect from index).")
+              help="Model for local backend (default: auto-detect from index)."
+                   + _MODEL_FLAG_HELP_SUFFIX)
+@click.option("--dashscope-model", default=None,
+              help="DashScope model id for qwen-cloud (implies --backend qwen-cloud)."
+                   + _DASHSCOPE_MODEL_FLAG_HELP_SUFFIX)
 @click.option("--quantize/--no-quantize", default=None,
               help="Enable/disable 4-bit quantization for local backend.")
 @click.option("-n", "--results", "n_results", default=5, show_default=True,
@@ -850,7 +917,7 @@ def _print_shell_results(results, threshold):
 @click.option("--threshold", default=0.41, show_default=True, type=float,
               help="Minimum similarity score to consider a confident match.")
 @click.option("--verbose", is_flag=True, help="Show debug info.")
-def shell(backend, model, quantize, n_results, threshold, verbose):
+def shell(backend, model, dashscope_model, quantize, n_results, threshold, verbose):
     """Start an interactive search session that keeps the model loaded.
 
     Useful for running multiple queries back-to-back with the local
@@ -868,10 +935,13 @@ def shell(backend, model, quantize, n_results, threshold, verbose):
     from .store import SentryStore, detect_index
 
     try:
+        _reject_conflicting_model_flags(model, dashscope_model)
         # Resolve backend/model (mirrors `search`)
+        if dashscope_model is not None and backend is None:
+            backend = "qwen-cloud"
         if model is not None and backend is None:
             backend = "local"
-        if model is not None:
+        if backend == "local" and model is not None:
             model = normalize_model_key(model)
         if backend is None:
             detected_backend, detected_model = detect_index()
@@ -880,6 +950,12 @@ def shell(backend, model, quantize, n_results, threshold, verbose):
                 model = detected_model
         elif backend == "local" and model is None:
             _, model = detect_index()
+        elif backend == "qwen-cloud":
+            if dashscope_model is not None:
+                model = dashscope_model
+            elif model is None:
+                _, detected_model = detect_index()
+                model = detected_model or default_dashscope_embedding_model()
 
         store = SentryStore(backend=backend, model=model)
         stats = store.get_stats()
@@ -1043,7 +1119,7 @@ def stats():
 # -----------------------------------------------------------------------
 
 @cli.command()
-@click.option("--backend", type=click.Choice(["gemini", "local"]), default=None,
+@click.option("--backend", type=click.Choice(_BACKEND_CHOICES), default=None,
               help="Backend to reset (auto-detected if omitted).")
 @click.option("--model", default=None,
               help="Model to reset (auto-detected if omitted). Implies --backend local.")
@@ -1059,6 +1135,11 @@ def reset(backend, model):
         backend = backend or "gemini"
         if model is None:
             model = detected_model
+    elif backend == "local" and model is None:
+        _, model = detect_index()
+    elif backend == "qwen-cloud" and model is None:
+        _, model = detect_index()
+        model = model or default_dashscope_embedding_model()
 
     store = SentryStore(backend=backend, model=model)
     s = store.get_stats()
@@ -1079,7 +1160,7 @@ def reset(backend, model):
 
 @cli.command()
 @click.argument("files", nargs=-1, required=True)
-@click.option("--backend", type=click.Choice(["gemini", "local"]), default=None,
+@click.option("--backend", type=click.Choice(_BACKEND_CHOICES), default=None,
               help="Backend to remove from (auto-detected if omitted).")
 @click.option("--model", default=None,
               help="Model to remove from (auto-detected if omitted). Implies --backend local.")
@@ -1097,6 +1178,11 @@ def remove(files, backend, model):
         backend = backend or "gemini"
         if model is None:
             model = detected_model
+    elif backend == "local" and model is None:
+        _, model = detect_index()
+    elif backend == "qwen-cloud" and model is None:
+        _, model = detect_index()
+        model = model or default_dashscope_embedding_model()
 
     store = SentryStore(backend=backend, model=model)
     s = store.get_stats()

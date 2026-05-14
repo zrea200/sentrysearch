@@ -31,6 +31,9 @@ local-quantized = [
     "torchcodec>=0.6",
     "bitsandbytes",
 ]
+qwen-cloud = [
+    "dashscope>=1.25.17",
+]
 
 [project.scripts]
 sentrysearch = "sentrysearch.cli:cli"
