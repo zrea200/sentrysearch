@@ -202,7 +202,7 @@ $ sentrysearch highlights -n 3
 
 ### Qwen 云端 Alibaba DashScope
 
-可选用 **qwen-cloud** 后端，对接 [DashScope](https://help.aliyun.com/dashscope/) / 模型服务的多模态嵌入（默认模型 `qwen3-vl-embedding`，可用 `--dashscope-model` 或环境变量 `DASHSCOPE_EMBEDDING_MODEL` 覆盖）：
+可选用 **qwen-cloud** 后端，对接 [DashScope](https://www.alibabacloud.com/help/en/model-studio/qwen-api-via-dashscope) / 模型服务的多模态嵌入（默认模型 `qwen3-vl-embedding`，可用 `--dashscope-model` 或环境变量 `DASHSCOPE_EMBEDDING_MODEL` 覆盖）：
 
 ```bash
 uv tool install ".[qwen-cloud]"

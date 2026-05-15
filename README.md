@@ -200,7 +200,7 @@ Refinement options:
 
 ### Qwen Cloud (Alibaba DashScope)
 
-Use the optional **qwen-cloud** backend for [DashScope](https://help.aliyun.com/dashscope/) / Model Studio multimodal embeddings (default model `qwen3-vl-embedding`, overridable with `--dashscope-model` or `DASHSCOPE_EMBEDDING_MODEL`):
+Use the optional **qwen-cloud** backend for [DashScope](https://www.alibabacloud.com/help/en/model-studio/qwen-api-via-dashscope) / Model Studio multimodal embeddings (default model `qwen3-vl-embedding`, overridable with `--dashscope-model` or `DASHSCOPE_EMBEDDING_MODEL`):
 
 ```bash
 uv tool install ".[qwen-cloud]"
