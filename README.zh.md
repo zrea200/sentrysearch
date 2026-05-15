@@ -326,7 +326,18 @@ Gemini API 对上传视频按 **每秒 1 帧** 抽取并计费，与文件原始
 
 搜索侧费用可忽略（多为文本嵌入）。
 
-可调参数：
+### Qwen 云端（DashScope，Qwen3-VL-Embedding）
+
+DashScope 对**多模态向量**按 **人民币 / 千输入 Token**、按**模态**计费。默认模型 `qwen3-vl-embedding` 在阿里云公开文档中的参考单价（**以你账号地域、控制台与文档最新价为准**）一般为：
+
+- **文本输入：**约 **¥0.0007 / 千 Token**  
+- **图片 / 视频输入：**约 **¥0.0018 / 千 Token**  
+
+建索引时每个切片走 **视频** 模态；`search` / `img` 查询主要是**文本**或**图片** Token，单价通常低于视频。总费用取决于每次请求在账单里统计的 **Token 数**（与分辨率、时长、采样如环境变量 `DASHSCOPE_VIDEO_FPS` 等有关），**不能像 Gemini 那样仅凭「每秒一帧」的公开美元单价直接换算成固定「每小时多少钱」**，建议先小规模索引后在百炼/ DashScope 控制台看实际消耗再外推。
+
+文档中常见**新开通限时免费 Token 额度**（例如百万级 Token、限期有效），以 [多模态向量计费说明](https://help.aliyun.com/dashscope/developer-reference/one-peace-multimodal-embedding-metering-and-billing) 与控制台为准，**定价与活动会调整**。
+
+**索引侧可调（Gemini 与 qwen-cloud 均适用）：**
 
 - `--chunk-duration` / `--overlap` — 片段更长、重叠更少 → API 调用更少 → 成本更低
 - `--no-skip-still` — 即使画面静止也全部嵌入

@@ -322,7 +322,18 @@ Two built-in optimizations help reduce costs in different ways:
 
 Search queries are negligible (text embedding only).
 
-Tuning options:
+### Qwen Cloud (DashScope, Qwen3-VL-Embedding)
+
+DashScope bills **multimodal embedding** in **CNY per 1,000 input tokens**, by modality. For default model `qwen3-vl-embedding`, Alibaba’s published rates (check the doc below for your region and any updates) are along the lines of:
+
+- **Text input:** about **¥0.0007** per 1k input tokens  
+- **Image / video input:** about **¥0.0018** per 1k input tokens  
+
+Indexing sends **video** chunks (video modality); each `search` / `img` query is mostly **text** or **image** tokens, which are cheaper per token than video. Your real cost is the **token counts returned by DashScope** for each API call (depends on resolution, duration, sampling such as `DASHSCOPE_VIDEO_FPS`, etc.)—there is no fixed “$ per hour of footage” like Gemini’s published per-frame USD rate without measuring your workload.
+
+Alibaba also documents a **free token allowance** (e.g. 1M tokens within a limited period after activation); confirm in the [DashScope multimodal embedding metering & billing](https://help.aliyun.com/dashscope/developer-reference/one-peace-multimodal-embedding-metering-and-billing) page and in the Model Studio / billing console, since **pricing, regions, and promotions change**.
+
+**Indexing tuning (Gemini & qwen-cloud):**
 
 - `--chunk-duration` / `--overlap` — longer chunks with less overlap = fewer API calls = lower cost
 - `--no-skip-still` — embed every chunk even if nothing is happening
